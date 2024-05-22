@@ -1,5 +1,5 @@
 ---
-title: "India Air Quality Index Prediction"
+title: "India Air Quality Index Forecast"
 author: "Kshitiz Sahay"
 date: "2024-05-18"
 output: html_document
@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
-setwd("/Users/kshitizsahay/Downloads")
+setwd("~/Documents/University of Chicago/Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/india-air-quality-index-forecast/scripts/modeling")
 options(width = 200)
 ```
 
@@ -29,10 +29,11 @@ library(dplyr)
 # Import Datasets
 
 ```{r}
-cities <- c('Bengaluru', 'Lucknow', 'Delhi', 'Chennai')
+cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
+path <- '/Users/kshitizsahay/Documents/University of Chicago/Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
 
 for (city in cities) {
-  file_name <- paste0(city, "_day_filled.csv")
+  file_name <- paste0(path, city, "_day_filled.csv")
   assign(city, read.csv(file_name))
   print(city)
   print(rbind(head(get(city), 3), tail(get(city), 3)))
@@ -55,14 +56,16 @@ for (city in cities) {
 # EDA
 
 ```{r}
-cities <- c('Bengaluru', 'Lucknow', 'Delhi', 'Chennai')
-cities_xts <- c('Bengaluru_xts', 'Lucknow_xts', 'Delhi_xts', 'Chennai_xts')
+cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
+cities_xts <- c('bengaluru_xts', 'lucknow_xts', 'delhi_xts', 'chennai_xts')
 
-plot(Bengaluru_xts$AQI)
-plot(Lucknow_xts$AQI)
-plot(Delhi_xts$AQI)
-plot(Chennai_xts$AQI)
+plot(bengaluru_xts$AQI)
+plot(lucknow_xts$AQI)
+plot(delhi_xts$AQI)
+plot(chennai_xts$AQI)
 ```
+
+# Tests
 
 ```{r}
 eda_ts <- function (xts, city_name) {
@@ -74,23 +77,24 @@ for (city in cities_xts) {
   eda_ts(get(city), city)
 }
 ```
+# Tests
 
 ```{r}
-adf.test(Bengaluru_xts$AQI)
-kpss.test(Bengaluru_xts$AQI)
-eacf(Bengaluru_xts$AQI)
+adf.test(bengaluru_xts$AQI)
+kpss.test(bengaluru_xts$AQI)
+eacf(bengaluru_xts$AQI)
 
-adf.test(Chennai_xts$AQI)
-kpss.test(Chennai_xts$AQI)
-eacf(Chennai_xts$AQI)
+adf.test(chennai_xts$AQI)
+kpss.test(chennai_xts$AQI)
+eacf(chennai_xts$AQI)
 
-adf.test(Delhi_xts$AQI)
-kpss.test(Delhi_xts$AQI)
-eacf(Delhi_xts$AQI)
+adf.test(delhi_xts$AQI)
+kpss.test(delhi_xts$AQI)
+eacf(delhi_xts$AQI)
 
-adf.test(Lucknow_xts$AQI)
-kpss.test(Lucknow_xts$AQI)
-eacf(Lucknow_xts$AQI)
+adf.test(lucknow_xts$AQI)
+kpss.test(lucknow_xts$AQI)
+eacf(lucknow_xts$AQI)
 ```
 
 # Decompose
@@ -117,12 +121,12 @@ for (city in cities_xts) {
 }
 ```
 
-# Models
+# Prophet Model: Lucknow
 
 ```{r}
 # Convert xts objects to dataframes
-df_train <- data.frame(date = index(Lucknow_xts_train), coredata(Lucknow_xts_train))
-df_test <- data.frame(date = index(Lucknow_xts_test), coredata(Lucknow_xts_test))
+df_train <- data.frame(date = index(lucknow_xts_train), coredata(lucknow_xts_train))
+df_test <- data.frame(date = index(lucknow_xts_test), coredata(lucknow_xts_test))
 
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
@@ -203,11 +207,12 @@ bic <- log(n) * k - 2 * log_likelihood
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
 ```
+# Prophet Model: Chennai
 
 ```{r}
 # Convert xts objects to dataframes
-df_train <- data.frame(date = index(Chennai_xts_train), coredata(Chennai_xts_train))
-df_test <- data.frame(date = index(Chennai_xts_test), coredata(Chennai_xts_test))
+df_train <- data.frame(date = index(chennai_xts_train), coredata(chennai_xts_train))
+df_test <- data.frame(date = index(chennai_xts_test), coredata(chennai_xts_test))
 
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
@@ -288,11 +293,12 @@ bic <- log(n) * k - 2 * log_likelihood
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
 ```
+# Prophet Model: Delhi
 
 ```{r}
 # Convert xts objects to dataframes
-df_train <- data.frame(date = index(Delhi_xts_train), coredata(Delhi_xts_train))
-df_test <- data.frame(date = index(Delhi_xts_test), coredata(Delhi_xts_test))
+df_train <- data.frame(date = index(delhi_xts_train), coredata(delhi_xts_train))
+df_test <- data.frame(date = index(delhi_xts_test), coredata(delhi_xts_test))
 
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
@@ -373,11 +379,12 @@ bic <- log(n) * k - 2 * log_likelihood
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
 ```
+# Prophet Model: Bengaluru
 
 ```{r}
 # Convert xts objects to dataframes
-df_train <- data.frame(date = index(Bengaluru_xts_train), coredata(Bengaluru_xts_train))
-df_test <- data.frame(date = index(Bengaluru_xts_test), coredata(Bengaluru_xts_test))
+df_train <- data.frame(date = index(bengaluru_xts_train), coredata(bengaluru_xts_train))
+df_test <- data.frame(date = index(bengaluru_xts_test), coredata(bengaluru_xts_test))
 
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
