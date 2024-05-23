@@ -1,57 +1,19 @@
-# Extract predicted values from the forecast
-predicted <- forecast$yhat
-# Calculate metrics
-rmse_value <- rmse(actual, predicted)
-mse_value <- mse(actual, predicted)
-mape_value <- mape(actual, predicted)
-mae_value <- mae(actual, predicted)
-amape_value <- mean(abs((actual - predicted) / ((actual + predicted) / 2))) * 100
-# Print the metrics
-cat("RMSE: ", rmse_value, "\n")
-cat("MSE: ", mse_value, "\n")
-cat("MAPE: ", mape_value, "\n")
-cat("MAE: ", mae_value, "\n")
-cat("AMAPE: ", amape_value, "\n")
-# Calculate Residuals
-residuals <- actual - predicted
-# Calculate Residual Sum of Squares (RSS)
-rss <- sum(residuals^2)
-# Number of observations and number of parameters
-n <- length(actual)
-k <- length(m$params)
-# Calculate Log-Likelihood
-log_likelihood <- -n/2 * (log(2 * pi) + log(rss/n) + 1)
-# Calculate AIC
-aic <- 2 * k - 2 * log_likelihood
-# Calculate BIC
-bic <- log(n) * k - 2 * log_likelihood
-# Print the metrics
-cat("AIC: ", aic, "\n")
-cat("BIC: ", bic, "\n")
-knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
-setwd("/Users/kshitizsahay/Downloads")
-options(width = 200)
-Sys.setlocale("LC_TIME", "English")
-library(readr)
-library(xts)
-library(forecast)
-library(tseries)
-library(fGarch)
-library(TSA)
-library(Metrics)
-library(prophet)
-library(dplyr)
-library(ggplot2)
-cities <- c('Bengaluru', 'Lucknow', 'Delhi', 'Chennai')
-for (city in cities) {
-file_name <- paste0(city, "_day_filled.csv")
-assign(city, read.csv(file_name))
-print(city)
-print(rbind(head(get(city), 3), tail(get(city), 3)))
-}
+---
+title: "India Air Quality Index Forecast: Prophet"
+author: "Kshitiz Sahay"
+date: "2024-05-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
 setwd("~/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/scripts/modeling")
 options(width = 200)
+```
+
+# Import Packages
+
+```{r, message=FALSE, warning=FALSE}
 Sys.setlocale("LC_TIME", "English")
 library(readr)
 library(xts)
@@ -63,450 +25,624 @@ library(Metrics)
 library(prophet)
 library(dplyr)
 library(ggplot2)
+```
+
+# Import Datasets
+
+```{r}
 cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
 path <- '/Users/kshitizsahay/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
+
 for (city in cities) {
-file_name <- paste0(path, city, "_day_filled.csv")
-assign(city, read.csv(file_name))
-print(city)
-print(rbind(head(get(city), 3), tail(get(city), 3)))
+  file_name <- paste0(path, city, "_day_filled.csv")
+  assign(city, read.csv(file_name))
+  print(city)
+  print(rbind(head(get(city), 3), tail(get(city), 3)))
 }
+```
+
+# Create XTS objects
+
+```{r}
 for (city in cities) {
-data <- get(city)
-data$Date <- as.Date(data$Date)
-city_xts <- xts(data[,-1], order.by = data$Date)
-assign(paste0(city, "_xts"), city_xts)
-print(city)
-print(rbind(head(get(paste0(city, "_xts")), 3), tail(get(paste0(city, "_xts")), 3)))
+  data <- get(city)
+  data$Date <- as.Date(data$Date)
+  city_xts <- xts(data[,-1], order.by = data$Date)
+  assign(paste0(city, "_xts"), city_xts)
+  print(city)
+  print(rbind(head(get(paste0(city, "_xts")), 3), tail(get(paste0(city, "_xts")), 3)))
 }
+```
+
+# EDA
+
+```{r}
 cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
 cities_xts <- c('bengaluru_xts', 'lucknow_xts', 'delhi_xts', 'chennai_xts')
+
 plot(bengaluru_xts$AQI)
 plot(lucknow_xts$AQI)
 plot(delhi_xts$AQI)
 plot(chennai_xts$AQI)
+```
+
+```{r}
 eda_ts <- function (xts, city_name) {
-acf(xts$AQI, main = paste("ACF for", city_name))
-pacf(xts$AQI, main = paste("PACF for", city_name))
+  acf(xts$AQI, main = paste("ACF for", city_name))
+  pacf(xts$AQI, main = paste("PACF for", city_name))
 }
+
 for (city in cities_xts) {
-eda_ts(get(city), city)
+  eda_ts(get(city), city)
 }
+```
+
+```{r}
 adf.test(bengaluru_xts$AQI)
 kpss.test(bengaluru_xts$AQI)
 eacf(bengaluru_xts$AQI)
+
 adf.test(chennai_xts$AQI)
 kpss.test(chennai_xts$AQI)
 eacf(chennai_xts$AQI)
+
 adf.test(delhi_xts$AQI)
 kpss.test(delhi_xts$AQI)
 eacf(delhi_xts$AQI)
+
 adf.test(lucknow_xts$AQI)
 kpss.test(lucknow_xts$AQI)
 eacf(lucknow_xts$AQI)
+```
+
+# Decompose
+
+```{r}
 for (city in cities_xts) {
-plot(decompose(ts(get(city)$AQI, frequency = 365)), col.main = "white")
-title(main = paste("Decomposition of additive time series for", city))
+  plot(decompose(ts(get(city)$AQI, frequency = 365)), col.main = "white")
+  title(main = paste("Decomposition of additive time series for", city))
 }
+```
+
+# Train / Test Split
+
+```{r}
 for (city in cities_xts) {
-train_data <- window(get(city),
-start = as.Date("2015-01-01"),
-end = as.Date("2020-06-01"))
-test_data <- window(get(city),
-start = as.Date("2020-06-02"),
-end = as.Date("2020-07-01"))
-assign(paste0(city, "_train"), train_data)
-assign(paste0(city, "_test"), test_data)
+  train_data <- window(get(city),
+                       start = as.Date("2015-01-01"),
+                       end = as.Date("2020-06-01"))
+  test_data <- window(get(city),
+                      start = as.Date("2020-06-02"),
+                      end = as.Date("2020-07-01"))
+  assign(paste0(city, "_train"), train_data)
+  assign(paste0(city, "_test"), test_data)
 }
+```
+
+# Prophet Model: Lucknow
+
+```{r}
 # Convert xts objects to dataframes
 df_train <- data.frame(date = index(lucknow_xts_train), coredata(lucknow_xts_train))
 df_test <- data.frame(date = index(lucknow_xts_test), coredata(lucknow_xts_test))
+
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
 df_test <- df_test %>% rename(ds = date, y = AQI)
+
 # Initialize the Prophet model
 m <- prophet(daily.seasonality=TRUE)
+
 # Add the additional regressors
 # m <- add_regressor(m, 'PM2.5')
 # m <- add_regressor(m, 'NO')
 # m <- add_regressor(m, 'NO2')
 # m <- add_regressor(m, 'CO')
+
 # Fit the model
 m <- fit.prophet(m, df_train)
+
 # Make a future dataframe only for the required periods (30 in this case)
 past <- df_train[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
+
 # Forecast
 forecast0 <- predict(m, past)
+
 # Plot the forecast
 plot(m, forecast0)
 prophet_plot_components(m, forecast0)
+
 # Make a future dataframe only for the required periods (30 in this case)
 # future <- df_test[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
 future <- make_future_dataframe(m, periods = nrow(df_test), freq = 'day')
+
 # Forecast
 forecast <- predict(m, future)
+
 # Plot the forecast
 plot(m, forecast)
 prophet_plot_components(m, forecast)
+
 # Extract actual values from the test set
 actual <- df_test$y
+
 # Extract predicted values from the forecast
 last_30_forecast <- tail(forecast, nrow(df_test))
 predicted <- last_30_forecast$yhat
+
 # Calculate metrics
 rmse_value <- rmse(actual, predicted)
 mse_value <- mse(actual, predicted)
 mape_value <- mape(actual, predicted)
 mae_value <- mae(actual, predicted)
 amape_value <- mean(abs((actual - predicted) / ((actual + predicted) / 2))) * 100
+
 # Print the metrics
 cat("RMSE: ", rmse_value, "\n")
 cat("MSE: ", mse_value, "\n")
 cat("MAPE: ", mape_value, "\n")
 cat("MAE: ", mae_value, "\n")
 cat("AMAPE: ", amape_value, "\n")
+
 # Calculate Residuals
 residuals <- actual - predicted
+
 # Calculate Residual Sum of Squares (RSS)
 rss <- sum(residuals^2)
+
 # Number of observations and number of parameters
 n <- length(actual)
 k <- length(m$params)
+
 # Calculate Log-Likelihood
 log_likelihood <- -n/2 * (log(2 * pi) + log(rss/n) + 1)
+
 # Calculate AIC
 aic <- 2 * k - 2 * log_likelihood
+
 # Calculate BIC
 bic <- log(n) * k - 2 * log_likelihood
+
 # Print the metrics
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
+
 # Create a dataframe with actual and predicted values
 plot_df <- data.frame(
-ds = df_test$ds,
-actual = actual,
-predicted = predicted
+  ds = df_test$ds,
+  actual = actual,
+  predicted = predicted
 )
+
 # Plot the actual vs forecast
 ggplot(plot_df, aes(x = ds)) +
-geom_line(aes(y = actual, color = "Actual")) +
-geom_line(aes(y = predicted, color = "Forecast")) +
-labs(title = "Actual vs Forecasted AQI",
-x = "Date",
-y = "AQI") +
-scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
-theme_minimal()
+  geom_line(aes(y = actual, color = "Actual")) +
+  geom_line(aes(y = predicted, color = "Forecast")) +
+  labs(title = "Actual vs Forecasted AQI",
+       x = "Date",
+       y = "AQI") +
+  scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
+  theme_minimal()
+
 # Shapiro-Wilk test for normality
 shapiro_test <- shapiro.test(residuals)
+
 # Print the Shapiro-Wilk test results
 cat("Shapiro-Wilk test:\n")
 print(shapiro_test)
+
 # Kolmogorov-Smirnov test for normality against a normal distribution
 ks_test <- ks.test(residuals, "pnorm", mean(residuals), sd(residuals))
+
 # Print the Kolmogorov-Smirnov test results
 cat("Kolmogorov-Smirnov test:\n")
 print(ks_test)
+
 # Plot Q-Q plot
 qqplot <- ggplot(data = data.frame(residuals = residuals), aes(sample = residuals)) +
-stat_qq() +
-stat_qq_line() +
-labs(title = "Q-Q Plot of Residuals",
-x = "Theoretical Quantiles",
-y = "Sample Quantiles") +
-theme_minimal()
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_minimal()
+
 # Print Q-Q plot
 print(qqplot)
+```
+
+# Prophet Model: Chennai
+
+```{r}
 # Convert xts objects to dataframes
 df_train <- data.frame(date = index(chennai_xts_train), coredata(chennai_xts_train))
 df_test <- data.frame(date = index(chennai_xts_test), coredata(chennai_xts_test))
+
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
 df_test <- df_test %>% rename(ds = date, y = AQI)
+
 # Initialize the Prophet model
 m <- prophet(daily.seasonality=TRUE)
+
 # Add the additional regressors
 # m <- add_regressor(m, 'PM2.5')
 # m <- add_regressor(m, 'NO')
 # m <- add_regressor(m, 'NO2')
 # m <- add_regressor(m, 'CO')
+
 # Fit the model
 m <- fit.prophet(m, df_train)
+
 # Make a future dataframe only for the required periods (30 in this case)
 past <- df_train[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
+
 # Forecast
 forecast0 <- predict(m, past)
+
 # Plot the forecast
 plot(m, forecast0)
 prophet_plot_components(m, forecast0)
+
 # Make a future dataframe only for the required periods (30 in this case)
 # future <- df_test[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
 future <- make_future_dataframe(m, periods = nrow(df_test), freq = 'day')
+
 # Forecast
 forecast <- predict(m, future)
+
 # Plot the forecast
 plot(m, forecast)
 prophet_plot_components(m, forecast)
+
 # Extract actual values from the test set
 actual <- df_test$y
+
 # Extract predicted values from the forecast
 last_30_forecast <- tail(forecast, nrow(df_test))
 predicted <- last_30_forecast$yhat
+
 # Calculate metrics
 rmse_value <- rmse(actual, predicted)
 mse_value <- mse(actual, predicted)
 mape_value <- mape(actual, predicted)
 mae_value <- mae(actual, predicted)
 amape_value <- mean(abs((actual - predicted) / ((actual + predicted) / 2))) * 100
+
 # Print the metrics
 cat("RMSE: ", rmse_value, "\n")
 cat("MSE: ", mse_value, "\n")
 cat("MAPE: ", mape_value, "\n")
 cat("MAE: ", mae_value, "\n")
 cat("AMAPE: ", amape_value, "\n")
+
 # Calculate Residuals
 residuals <- actual - predicted
+
 # Calculate Residual Sum of Squares (RSS)
 rss <- sum(residuals^2)
+
 # Number of observations and number of parameters
 n <- length(actual)
 k <- length(m$params)
+
 # Calculate Log-Likelihood
 log_likelihood <- -n/2 * (log(2 * pi) + log(rss/n) + 1)
+
 # Calculate AIC
 aic <- 2 * k - 2 * log_likelihood
+
 # Calculate BIC
 bic <- log(n) * k - 2 * log_likelihood
+
 # Print the metrics
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
+
 # Create a dataframe with actual and predicted values
 plot_df <- data.frame(
-ds = df_test$ds,
-actual = actual,
-predicted = predicted
+  ds = df_test$ds,
+  actual = actual,
+  predicted = predicted
 )
+
 # Plot the actual vs forecast
 ggplot(plot_df, aes(x = ds)) +
-geom_line(aes(y = actual, color = "Actual")) +
-geom_line(aes(y = predicted, color = "Forecast")) +
-labs(title = "Actual vs Forecasted AQI",
-x = "Date",
-y = "AQI") +
-scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
-theme_minimal()
+  geom_line(aes(y = actual, color = "Actual")) +
+  geom_line(aes(y = predicted, color = "Forecast")) +
+  labs(title = "Actual vs Forecasted AQI",
+       x = "Date",
+       y = "AQI") +
+  scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
+  theme_minimal()
+
 # Shapiro-Wilk test for normality
 shapiro_test <- shapiro.test(residuals)
+
 # Print the Shapiro-Wilk test results
 cat("Shapiro-Wilk test:\n")
 print(shapiro_test)
+
 # Kolmogorov-Smirnov test for normality against a normal distribution
 ks_test <- ks.test(residuals, "pnorm", mean(residuals), sd(residuals))
+
 # Print the Kolmogorov-Smirnov test results
 cat("Kolmogorov-Smirnov test:\n")
 print(ks_test)
+
 # Plot Q-Q plot
 qqplot <- ggplot(data = data.frame(residuals = residuals), aes(sample = residuals)) +
-stat_qq() +
-stat_qq_line() +
-labs(title = "Q-Q Plot of Residuals",
-x = "Theoretical Quantiles",
-y = "Sample Quantiles") +
-theme_minimal()
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_minimal()
+
 # Print Q-Q plot
 print(qqplot)
+```
+
+# Prophet Model: Delhi
+
+```{r}
 # Convert xts objects to dataframes
 df_train <- data.frame(date = index(delhi_xts_train), coredata(delhi_xts_train))
 df_test <- data.frame(date = index(delhi_xts_test), coredata(delhi_xts_test))
+
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
 df_test <- df_test %>% rename(ds = date, y = AQI)
+
 # Initialize the Prophet model
 m <- prophet(daily.seasonality=TRUE)
+
 # Add the additional regressors
 # m <- add_regressor(m, 'PM2.5')
 # m <- add_regressor(m, 'NO')
 # m <- add_regressor(m, 'NO2')
 # m <- add_regressor(m, 'CO')
+
 # Fit the model
 m <- fit.prophet(m, df_train)
+
 # Make a future dataframe only for the required periods (30 in this case)
 past <- df_train[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
+
 # Forecast
 forecast0 <- predict(m, past)
+
 # Plot the forecast
 plot(m, forecast0)
 prophet_plot_components(m, forecast0)
+
 # Make a future dataframe only for the required periods (30 in this case)
 # future <- df_test[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
 future <- make_future_dataframe(m, periods = nrow(df_test), freq = 'day')
+
 # Forecast
 forecast <- predict(m, future)
+
 # Plot the forecast
 plot(m, forecast)
 prophet_plot_components(m, forecast)
+
 # Extract actual values from the test set
 actual <- df_test$y
+
 # Extract predicted values from the forecast
 last_30_forecast <- tail(forecast, nrow(df_test))
 predicted <- last_30_forecast$yhat
+
 # Calculate metrics
 rmse_value <- rmse(actual, predicted)
 mse_value <- mse(actual, predicted)
 mape_value <- mape(actual, predicted)
 mae_value <- mae(actual, predicted)
 amape_value <- mean(abs((actual - predicted) / ((actual + predicted) / 2))) * 100
+
 # Print the metrics
 cat("RMSE: ", rmse_value, "\n")
 cat("MSE: ", mse_value, "\n")
 cat("MAPE: ", mape_value, "\n")
 cat("MAE: ", mae_value, "\n")
 cat("AMAPE: ", amape_value, "\n")
+
 # Calculate Residuals
 residuals <- actual - predicted
+
 # Calculate Residual Sum of Squares (RSS)
 rss <- sum(residuals^2)
+
 # Number of observations and number of parameters
 n <- length(actual)
 k <- length(m$params)
+
 # Calculate Log-Likelihood
 log_likelihood <- -n/2 * (log(2 * pi) + log(rss/n) + 1)
+
 # Calculate AIC
 aic <- 2 * k - 2 * log_likelihood
+
 # Calculate BIC
 bic <- log(n) * k - 2 * log_likelihood
+
 # Print the metrics
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
+
 # Create a dataframe with actual and predicted values
 plot_df <- data.frame(
-ds = df_test$ds,
-actual = actual,
-predicted = predicted
+  ds = df_test$ds,
+  actual = actual,
+  predicted = predicted
 )
+
 # Plot the actual vs forecast
 ggplot(plot_df, aes(x = ds)) +
-geom_line(aes(y = actual, color = "Actual")) +
-geom_line(aes(y = predicted, color = "Forecast")) +
-labs(title = "Actual vs Forecasted AQI",
-x = "Date",
-y = "AQI") +
-scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
-theme_minimal()
+  geom_line(aes(y = actual, color = "Actual")) +
+  geom_line(aes(y = predicted, color = "Forecast")) +
+  labs(title = "Actual vs Forecasted AQI",
+       x = "Date",
+       y = "AQI") +
+  scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
+  theme_minimal()
+
 # Shapiro-Wilk test for normality
 shapiro_test <- shapiro.test(residuals)
+
 # Print the Shapiro-Wilk test results
 cat("Shapiro-Wilk test:\n")
 print(shapiro_test)
+
 # Kolmogorov-Smirnov test for normality against a normal distribution
 ks_test <- ks.test(residuals, "pnorm", mean(residuals), sd(residuals))
+
 # Print the Kolmogorov-Smirnov test results
 cat("Kolmogorov-Smirnov test:\n")
 print(ks_test)
+
 # Plot Q-Q plot
 qqplot <- ggplot(data = data.frame(residuals = residuals), aes(sample = residuals)) +
-stat_qq() +
-stat_qq_line() +
-labs(title = "Q-Q Plot of Residuals",
-x = "Theoretical Quantiles",
-y = "Sample Quantiles") +
-theme_minimal()
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_minimal()
+
 # Print Q-Q plot
 print(qqplot)
+```
+
+# Prophet Model: Bengaluru
+
+```{r}
 # Convert xts objects to dataframes
 df_train <- data.frame(date = index(bengaluru_xts_train), coredata(bengaluru_xts_train))
 df_test <- data.frame(date = index(bengaluru_xts_test), coredata(bengaluru_xts_test))
+
 # Rename columns for Prophet
 df_train <- df_train %>% rename(ds = date, y = AQI)
 df_test <- df_test %>% rename(ds = date, y = AQI)
+
 # Initialize the Prophet model
 m <- prophet(daily.seasonality=TRUE)
+
 # Add the additional regressors
 # m <- add_regressor(m, 'PM2.5')
 # m <- add_regressor(m, 'NO')
 # m <- add_regressor(m, 'NO2')
 # m <- add_regressor(m, 'CO')
+
 # Fit the model
 m <- fit.prophet(m, df_train)
+
 # Make a future dataframe only for the required periods (30 in this case)
 past <- df_train[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
+
 # Forecast
 forecast0 <- predict(m, past)
+
 # Plot the forecast
 plot(m, forecast0)
 prophet_plot_components(m, forecast0)
+
 # Make a future dataframe only for the required periods (30 in this case)
 # future <- df_test[, c('ds', 'PM2.5', 'NO', 'NO2', 'CO')]
 future <- make_future_dataframe(m, periods = nrow(df_test), freq = 'day')
+
 # Forecast
 forecast <- predict(m, future)
+
 # Plot the forecast
 plot(m, forecast)
 prophet_plot_components(m, forecast)
+
 # Extract actual values from the test set
 actual <- df_test$y
+
 # Extract predicted values from the forecast
 last_30_forecast <- tail(forecast, nrow(df_test))
 predicted <- last_30_forecast$yhat
+
 # Calculate metrics
 rmse_value <- rmse(actual, predicted)
 mse_value <- mse(actual, predicted)
 mape_value <- mape(actual, predicted)
 mae_value <- mae(actual, predicted)
 amape_value <- mean(abs((actual - predicted) / ((actual + predicted) / 2))) * 100
+
 # Print the metrics
 cat("RMSE: ", rmse_value, "\n")
 cat("MSE: ", mse_value, "\n")
 cat("MAPE: ", mape_value, "\n")
 cat("MAE: ", mae_value, "\n")
 cat("AMAPE: ", amape_value, "\n")
+
 # Calculate Residuals
 residuals <- actual - predicted
+
 # Calculate Residual Sum of Squares (RSS)
 rss <- sum(residuals^2)
+
 # Number of observations and number of parameters
 n <- length(actual)
 k <- length(m$params)
+
 # Calculate Log-Likelihood
 log_likelihood <- -n/2 * (log(2 * pi) + log(rss/n) + 1)
+
 # Calculate AIC
 aic <- 2 * k - 2 * log_likelihood
+
 # Calculate BIC
 bic <- log(n) * k - 2 * log_likelihood
+
 # Print the metrics
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
+
 # Create a dataframe with actual and predicted values
 plot_df <- data.frame(
-ds = df_test$ds,
-actual = actual,
-predicted = predicted
+  ds = df_test$ds,
+  actual = actual,
+  predicted = predicted
 )
+
 # Plot the actual vs forecast
 ggplot(plot_df, aes(x = ds)) +
-geom_line(aes(y = actual, color = "Actual")) +
-geom_line(aes(y = predicted, color = "Forecast")) +
-labs(title = "Actual vs Forecasted AQI",
-x = "Date",
-y = "AQI") +
-scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
-theme_minimal()
+  geom_line(aes(y = actual, color = "Actual")) +
+  geom_line(aes(y = predicted, color = "Forecast")) +
+  labs(title = "Actual vs Forecasted AQI",
+       x = "Date",
+       y = "AQI") +
+  scale_color_manual(values = c("Actual" = "blue", "Forecast" = "red")) +
+  theme_minimal()
+
 # Shapiro-Wilk test for normality
 shapiro_test <- shapiro.test(residuals)
+
 # Print the Shapiro-Wilk test results
 cat("Shapiro-Wilk test:\n")
 print(shapiro_test)
+
 # Kolmogorov-Smirnov test for normality against a normal distribution
 ks_test <- ks.test(residuals, "pnorm", mean(residuals), sd(residuals))
+
 # Print the Kolmogorov-Smirnov test results
 cat("Kolmogorov-Smirnov test:\n")
 print(ks_test)
+
 # Plot Q-Q plot
 qqplot <- ggplot(data = data.frame(residuals = residuals), aes(sample = residuals)) +
-stat_qq() +
-stat_qq_line() +
-labs(title = "Q-Q Plot of Residuals",
-x = "Theoretical Quantiles",
-y = "Sample Quantiles") +
-theme_minimal()
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot of Residuals",
+       x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_minimal()
+
 # Print Q-Q plot
 print(qqplot)
+```
