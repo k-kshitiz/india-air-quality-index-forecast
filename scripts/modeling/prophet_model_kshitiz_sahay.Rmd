@@ -1,5 +1,5 @@
 ---
-title: "India Air Quality Index Forecast"
+title: "India Air Quality Index Forecast: Prophet"
 author: "Kshitiz Sahay"
 date: "2024-05-18"
 output: html_document
@@ -7,7 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
-setwd("~/Documents/University of Chicago/Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/india-air-quality-index-forecast/scripts/modeling")
+setwd("~/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/scripts/modeling")
 options(width = 200)
 ```
 
@@ -30,7 +30,7 @@ library(dplyr)
 
 ```{r}
 cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
-path <- '/Users/kshitizsahay/Documents/University of Chicago/Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
+path <- '/Users/kshitizsahay/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
 
 for (city in cities) {
   file_name <- paste0(path, city, "_day_filled.csv")
@@ -207,6 +207,7 @@ bic <- log(n) * k - 2 * log_likelihood
 cat("AIC: ", aic, "\n")
 cat("BIC: ", bic, "\n")
 ```
+
 # Prophet Model: Chennai
 
 ```{r}
