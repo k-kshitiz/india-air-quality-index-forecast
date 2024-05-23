@@ -1,0 +1,509 @@
+---
+title: "India Air Quality Index Forecast: ARMA_GARCH"
+author: "Welly (Wei-Chung) Huang"
+date: "2024-05-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 10, fig.height = 6)
+setwd("~/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/scripts/modeling")
+options(width = 200)
+```
+
+# Import Packages
+
+```{r, message=FALSE, warning=FALSE}
+Sys.setlocale("LC_TIME", "English")
+library(readr)
+library(xts)
+library(forecast)
+library(tseries)
+library(fGarch)
+library(TSA)
+library(Metrics)
+library(lmtest)
+library(gridExtra)
+library(ggplot2)
+library(cowplot)
+library(gridGraphics)
+library(grid)
+```
+
+# Import Datasets
+
+```{r}
+cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
+path <- '/Users/kshitizsahay/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
+
+for (city in cities) {
+  file_name <- paste0(path, city, "_day_filled.csv")
+  assign(city, read.csv(file_name))
+  print(rbind(head(get(city), 3), tail(get(city), 3)))
+}
+```
+
+# Create XTS objects
+
+```{r}
+for (city in cities) {
+  data <- get(city)
+  data$Date <- as.Date(data$Date)
+  city_xts <- xts(data[,-1], order.by = data$Date)
+  assign(paste0(city, "_xts"), city_xts)
+  print(city)
+  print(rbind(head(get(paste0(city, "_xts")), 3), tail(get(paste0(city, "_xts")), 3)))
+}
+```
+
+# EDA
+
+```{r}
+cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
+cities_xts <- c('bengaluru_xts', 'lucknow_xts', 'delhi_xts', 'chennai_xts')
+
+plot(bengaluru_xts$AQI)
+plot(lucknow_xts$AQI)
+plot(delhi_xts$AQI)
+plot(chennai_xts$AQI)
+```
+
+```{r}
+eda_ts <- function (xts, city_name) {
+  acf(xts$AQI, main = paste("ACF for", city_name))
+  pacf(xts$AQI, main = paste("PACF for", city_name))
+  acf((xts$AQI)^2, main = paste("ACF for", city_name, "squared"))
+}
+
+for (city in cities_xts) {
+  eda_ts(get(city), city)
+}
+```
+
+```{r}
+adf.test(bengaluru_xts$AQI)
+kpss.test(bengaluru_xts$AQI)
+eacf(bengaluru_xts$AQI)
+
+adf.test(chennai_xts$AQI)
+kpss.test(chennai_xts$AQI)
+eacf(chennai_xts$AQI)
+
+adf.test(delhi_xts$AQI)
+kpss.test(delhi_xts$AQI)
+eacf(delhi_xts$AQI)
+
+adf.test(lucknow_xts$AQI)
+kpss.test(lucknow_xts$AQI)
+eacf(lucknow_xts$AQI)
+```
+
+# Decompose
+
+```{r}
+for (city in cities_xts) {
+  plot(decompose(ts(get(city)$AQI, frequency = 365)), col.main = "white")
+  title(main = paste("Decomposition of additive time series for", city))
+}
+```
+
+# Train / Test Split
+
+```{r}
+for (city in cities_xts) {
+  train_data <- window(get(city),
+                       start = as.Date("2015-01-01"),
+                       end = as.Date("2020-06-01"))
+  test_data <- window(get(city),
+                      start = as.Date("2020-06-02"),
+                      end = as.Date("2020-07-01"))
+  assign(paste0(city, "_train"), train_data)
+  assign(paste0(city, "_test"), test_data)
+}
+
+# ls(pattern = "_train")
+# ls(pattern = "_test")
+```
+
+# Initial Model
+ARMA and GARCH combination = arma(1,1) + garch(1,1)
+
+```{r}
+AG <- function (train, test) {
+  train_data <- get(train)
+  test_data <- get(test)
+
+  normalized_ts <- (train_data$AQI - mean(train_data$AQI)) / sd(train_data$AQI)
+  model <- garchFit(formula = ~ arma(1,1) + garch(1,1),
+                    data = normalized_ts, trace = FALSE)
+  summary <- summary(model)
+  BIC <- summary[["ics"]][["BIC"]]
+  
+  stat_values <- summary$stat_tests # Standardized Residuals Tests
+  Jarque_Bera_R_pv <- stat_values[10]
+  Shapiro_Wilk_pv <- stat_values[11]
+  Ljung_Box_R_Q10_pv <- stat_values[12]
+  Ljung_Box_R_Q15_pv <- stat_values[13]
+  Ljung_Box_R_Q20_pv <- stat_values[14]
+  Ljung_Box_R2_Q10_pv <- stat_values[15]
+  Ljung_Box_R2_Q15_pv <- stat_values[16]
+  Ljung_Box_R2_Q20_pv <- stat_values[17]
+  LM_Arch_pv <- stat_values[18]
+  
+  forecast <- predict(model, n.ahead = 30)
+  value <- forecast$meanForecast * sd(train_data$AQI) + mean(train_data$AQI)
+  rmse <- rmse(as.numeric(test_data$AQI), value)
+  mae <- mae(as.numeric(test_data$AQI), value)
+  mape <- mape(as.numeric(test_data$AQI), value)
+  amape <- mean(100 * abs(as.numeric(test_data$AQI) - value)/as.numeric(test_data$AQI))
+
+  return(list(model = model,
+              summary = summary,
+              BIC = round(BIC, 4),
+              Jarque_Bera_R_pv = round(Jarque_Bera_R_pv, 4),
+              Shapiro_Wilk_pv = round(Shapiro_Wilk_pv, 4),
+              Ljung_Box_R_Q10_pv = round(Ljung_Box_R_Q10_pv, 4),
+              Ljung_Box_R_Q15_pv = round(Ljung_Box_R_Q15_pv, 4),
+              Ljung_Box_R_Q20_pv = round(Ljung_Box_R_Q20_pv, 4),
+              Ljung_Box_R2_Q10_pv = round(Ljung_Box_R2_Q10_pv, 4),
+              Ljung_Box_R2_Q15_pv = round(Ljung_Box_R2_Q15_pv, 4),
+              Ljung_Box_R2_Q20_pv = round(Ljung_Box_R2_Q20_pv, 4),
+              LM_Arch_pv = round(LM_Arch_pv, 4),
+              forecast = value,
+              RMSE = round(rmse, 4),
+              MAE = round(mae, 4),
+              MAPE = round(mape, 4),
+              AMAPE = round(amape, 4)
+              ))
+}
+
+plot_forecast_vs_real <- function(forecast, real_data, time_index, city) {
+  forecast_df <- data.frame(Time = time_index, Value = as.numeric(forecast), Type = "Forecast")
+  real_df <- data.frame(Time = time_index, Value = as.numeric(real_data), Type = "Real")
+  plot_df <- rbind(forecast_df, real_df)
+  
+  p <- ggplot(plot_df, aes(x = Time, y = Value, color = Type)) +
+    geom_line(size = 1) +
+    ggtitle(paste("Forecast vs Real Data for", city)) +
+    ylab("AQI") +
+    xlab("Time") +
+    theme_minimal() +
+    scale_color_manual(values = c("Forecast" = "blue", "Real" = "red"))
+  
+  return(p)
+}
+
+df_AG <- data.frame(
+  bengaluru_xts = numeric(14),
+  lucknow_xts = numeric(14),
+  delhi_xts = numeric(14),
+  chennai_xts = numeric(14))
+
+plot_list <- list()
+
+for (city in cities_xts) {
+  result <- AG(paste0(city, "_train"), paste0(city, "_test"))
+
+  df_col <- c(
+    result$Jarque_Bera_R_pv,
+    result$Shapiro_Wilk_pv,
+    result$Ljung_Box_R_Q10_pv,
+    result$Ljung_Box_R_Q15_pv,
+    result$Ljung_Box_R_Q20_pv,
+    result$Ljung_Box_R2_Q10_pv,
+    result$Ljung_Box_R2_Q15_pv,
+    result$Ljung_Box_R2_Q20_pv,
+    result$LM_Arch_pv,
+    result$BIC,
+    result$RMSE,
+    result$MAE,
+    result$MAPE,
+    result$AMAPE)
+  
+  df_AG[city] <- df_col
+  time_index <- index(get(paste0(city, "_test")))
+  plot <- plot_forecast_vs_real(result$forecast, get(paste0(city, "_test"))$AQI,
+                                time_index, city)
+  plot_list[[city]] <- plot
+}
+
+rownames(df_AG) <- c("Jarque-Bera (R) pv",
+                     "Shapiro-Wilk (R) pv",
+                     "Ljung_Box (R, Q = 10) pv",
+                     "Ljung_Box (R, Q = 15) pv",
+                     "Ljung_Box (R, Q = 20) pv",
+                     "Ljung_Box (R^2, Q = 10) pv",
+                     "Ljung_Box (R^2, Q = 15) pv",
+                     "Ljung_Box (R^2, Q = 20) pv",
+                     "LM Arch pv",
+                     "BIC",
+                     "RMSE",
+                     "MAE",
+                     "MAPE",
+                     "AMAPE")
+df_AG
+do.call(grid.arrange, c(plot_list, ncol = 2))
+```
+
+# Initial Conclusion
+Normality Tests (Jarque-Bera and Shapiro-Wilk):
+The standardized residuals are not normally distributed for any of the datasets.
+
+Autocorrelation Tests (Ljung-Box for residuals):
+There is significant autocorrelation in the standardized residuals, indicating that the model has not fully captured the time-series dynamics. (The ARMA part)
+
+Autocorrelation Tests for Squared Residuals (Ljung-Box for R^2):
+For most cities, there is no significant autocorrelation in the squared residuals, suggesting that the GARCH model is effectively capturing the volatility clustering.
+
+LM Arch Test
+The GARCH model adequately captures the autoregressive conditional heteroskedasticity in the data.
+
+Therefore, we should focus on changing the ARMA part of the ARMA-GARCH model since it has be proven that the GARCH part is handling the variances well.
+
+
+# Use auto.arima() to see which pdq order works better
+
+```{r}
+arima <- function (train, test) {
+  train_data <- get(train)
+  test_data <- get(test)
+  
+  model <- auto.arima(train_data$AQI, seasonal = FALSE)
+  summary <- summary(model)
+  AICC <- model$aicc
+  BIC <- model$bic
+  residual_check <- checkresiduals(model)
+  
+  forecast <- forecast(model, h = 30)$mean
+  mse <- mse(as.numeric(test_data$AQI), forecast)
+  mae <- mae(as.numeric(test_data$AQI), forecast)
+  mape <- mape(as.numeric(test_data$AQI), forecast)
+  amape <- mean(100 * abs(as.numeric(test_data$AQI) - forecast)/as.numeric(test_data$AQI))
+  
+  return(list(summary = summary,
+              residual_check = residual_check,
+              AICC = AICC,
+              BIC = BIC,
+              forecast = forecast,
+              MSE = mse,
+              MAE = mae,
+              MAPE = mape,
+              AMAPE = amape
+              ))
+}
+
+df_ARIMA <- data.frame()
+
+for (city in cities_xts) {
+  result <- arima(paste0(city, "_train"), paste0(city, "_test"))
+  df_row <- c(paste("(",
+                    result$summary$arma[1], ",",
+                    result$summary$arma[6], ",",
+                    result$summary$arma[2], ")"),
+              round(result$residual_check$p.value, 4),
+              round(result$AICC, 4),
+              round(result$BIC, 4),
+              round(result$MSE, 4),
+              round(result$MAE, 4),
+              round(result$MAPE, 4),
+              round(result$AMAPE, 4))
+  df_ARIMA <- rbind(df_ARIMA, df_row)
+}
+
+rownames(df_ARIMA) <- cities_xts
+colnames(df_ARIMA) <- c('order', 'Ljung-Box pv', 'AICC', 'BIC', 'MSE', 'MAE', 'MAPE', 'AMAPE')
+
+df_ARIMA
+```
+
+auto.arima() suggests:
+Bengaluru = (1,1,1)
+Lucknow =   (4,1,2)
+Delhi =     (3,1,3)
+Chennai =   (1,1,1)
+
+However, when using (4,1,2) for Lucknow, the *forecast <- predict(model, n.ahead = 30)* part will have issues going over n.ahead = 3.
+
+So, let's use a grid search to make sure we find the best ARMA model.
+
+```{r}
+arima_grid_search <- function (data, name, maxp, maxd = 2, maxq) {
+  grid_table <- data.frame(data = character(),
+                           order = character(),
+                           aicc = numeric(),
+                           bic = numeric())
+  
+  for (p in 0:maxp) {
+    for (d in 0:maxd) {
+      for (q in 0:maxq) {
+          arima_model <- Arima(data$AQI, order = c(p, d, q))
+          order <- paste("(", p, ",", d, ",", q, ")", sep = "")
+          AICC <- arima_model$aicc
+          BIC <- arima_model$bic
+          row_data <- list(data = name, order = order, aicc = AICC, bic = BIC)
+          grid_table <- do.call(rbind, list(grid_table, row_data))
+          }
+        }
+      }
+  sorted_grid <- grid_table[order(grid_table$bic), ]
+  return(head(sorted_grid, 5))
+}
+
+
+arima_grid_search(bengaluru_xts_train, "bengaluru_xts_train", maxp = 5, maxq = 5)
+arima_grid_search(lucknow_xts_train, "lucknow_xts_train", maxp = 3, maxq = 5)
+arima_grid_search(delhi_xts_train, "delhi_xts_train", maxp = 5, maxq = 5)
+arima_grid_search(chennai_xts_train, "chennai_xts_train", maxp = 5, maxq = 5)
+```
+Our final ARMA components:
+Bengaluru = (1,1,1)
+Lucknow =   (0,1,4)
+Delhi =     (1,1,2)
+Chennai =   (1,1,1)
+
+# Final Models
+
+## Differentiating
+
+Before running the ARMA-GARCH model with the new ARMA orders, differentiate the xts objects first.
+```{r}
+for (city in cities_xts) {
+  city_train <- paste0(city, "_train")
+  city_diff <- paste0(city, "_train_diff")
+  diff_data <- diff(get(city_train), differences = 1)
+  diff_data <- diff_data[-1, ]
+  assign(city_diff, diff_data)
+}
+```
+
+Check if they are stationary
+
+```{r}
+for (city in cities_xts) {
+  eda_ts(get(paste0(city, "_train_diff")), paste0(city, "_train_diff"))
+}
+```
+
+## Final Model
+
+Bengaluru = 111
+Lucknow = 014
+Delhi = 112
+Chennai = 111
+
+```{r}
+AG2 <- function (train, test) {
+  train_data <- get(train)
+  test_data <- get(test)
+
+  normalized_ts <- (train_data$AQI - mean(train_data$AQI)) / sd(train_data$AQI)
+
+  if (train == 'bengaluru_xts_train_diff') {
+    p_arma <- 1
+    q_arma <- 1
+  } else if (train == 'lucknow_xts_train_diff') {
+    p_arma <- 0
+    q_arma <- 4
+  } else if (train == 'delhi_xts_train_diff') {
+    p_arma <- 1
+    q_arma <- 2
+  } else {
+    p_arma <- 1
+    q_arma <- 1
+  }
+  formula <- bquote(~ arma(.(p_arma), .(q_arma)) + garch(1, 1))
+  model <- garchFit(formula = formula, data = normalized_ts, trace = FALSE)
+  # order <- paste0("ARMA(", p_arma, ",", q_arma, ")")
+  summary <- summary(model)
+  BIC <- summary[["ics"]][["BIC"]]
+
+  stat_values <- summary$stat_tests # Standardized Residuals Tests
+  Jarque_Bera_R_pv <- stat_values[10]
+  Shapiro_Wilk_pv <- stat_values[11]
+  Ljung_Box_R_Q10_pv <- stat_values[12]
+  Ljung_Box_R_Q15_pv <- stat_values[13]
+  Ljung_Box_R_Q20_pv <- stat_values[14]
+  Ljung_Box_R2_Q10_pv <- stat_values[15]
+  Ljung_Box_R2_Q15_pv <- stat_values[16]
+  Ljung_Box_R2_Q20_pv <- stat_values[17]
+  LM_Arch_pv <- stat_values[18]
+
+  forecast <- predict(model, n.ahead = 30)
+  value <- forecast$meanForecast * sd(train_data$AQI) + mean(train_data$AQI)
+  rmse <- rmse(as.numeric(test_data$AQI), value)
+  mae <- mae(as.numeric(test_data$AQI), value)
+  mape <- mape(as.numeric(test_data$AQI), value)
+  amape <- mean(100 * abs(as.numeric(test_data$AQI) - value)/as.numeric(test_data$AQI))
+
+  return(list(model = model,
+              summary = summary,
+              # order = order,
+              BIC = round(BIC, 4),
+              Jarque_Bera_R_pv = round(Jarque_Bera_R_pv, 4),
+              Shapiro_Wilk_pv = round(Shapiro_Wilk_pv, 4),
+              Ljung_Box_R_Q10_pv = round(Ljung_Box_R_Q10_pv, 4),
+              Ljung_Box_R_Q15_pv = round(Ljung_Box_R_Q15_pv, 4),
+              Ljung_Box_R_Q20_pv = round(Ljung_Box_R_Q20_pv, 4),
+              Ljung_Box_R2_Q10_pv = round(Ljung_Box_R2_Q10_pv, 4),
+              Ljung_Box_R2_Q15_pv = round(Ljung_Box_R2_Q15_pv, 4),
+              Ljung_Box_R2_Q20_pv = round(Ljung_Box_R2_Q20_pv, 4),
+              LM_Arch_pv = round(LM_Arch_pv, 4),
+              forecast = value,
+              RMSE = round(rmse, 4),
+              MAE = round(mae, 4),
+              MAPE = round(mape, 4),
+              AMAPE = round(amape, 4)
+              ))
+}
+
+df_AG_2 <- data.frame(
+  bengaluru_xts = numeric(14),
+  lucknow_xts = numeric(14),
+  delhi_xts = numeric(14),
+  chennai_xts = numeric(14))
+
+for (city in cities_xts) {
+  result <- AG2(paste0(city, "_train_diff"), paste0(city, "_test"))
+  
+  df_col <- c(
+    result$Jarque_Bera_R_pv,
+    result$Shapiro_Wilk_pv,
+    result$Ljung_Box_R_Q10_pv,
+    result$Ljung_Box_R_Q15_pv,
+    result$Ljung_Box_R_Q20_pv,
+    result$Ljung_Box_R2_Q10_pv,
+    result$Ljung_Box_R2_Q15_pv,
+    result$Ljung_Box_R2_Q20_pv,
+    result$LM_Arch_pv,
+    result$BIC,
+    result$RMSE,
+    result$MAE,
+    result$MAPE,
+    result$AMAPE)
+  
+  df_AG_2[city] <- df_col
+  time_index <- index(get(paste0(city, "_test")))
+  plot <- plot_forecast_vs_real(result$forecast, get(paste0(city, "_test"))$AQI,
+                                time_index, city)
+  plot_list[[city]] <- plot
+}
+
+rownames(df_AG_2) <- c("Jarque-Bera (R) pv",
+                       "Shapiro-Wilk (R) pv",
+                       "Ljung_Box (R, Q = 10) pv",
+                       "Ljung_Box (R, Q = 15) pv",
+                       "Ljung_Box (R, Q = 20) pv",
+                       "Ljung_Box (R^2, Q = 10) pv",
+                       "Ljung_Box (R^2, Q = 15) pv",
+                       "Ljung_Box (R^2, Q = 20) pv",
+                       "LM Arch pv",
+                       "BIC",
+                       "RMSE",
+                       "MAE",
+                       "MAPE",
+                       "AMAPE")
+df_AG_2
+do.call(grid.arrange, c(plot_list, ncol = 2))
+```
+Looks like bad forecast values.
+As a result, in terms of forecasting accuracy, just use the original arma(1,1) + garch(1,1) model.
