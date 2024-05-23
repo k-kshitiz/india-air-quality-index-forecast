@@ -1,0 +1,488 @@
+---
+title: "India Air Quality Index Forecast: VAR"
+author: "Katy Shih"
+date: "2024-05-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+cat("\014")
+rm(list = ls())
+
+```
+
+```{r}
+library(readr)
+library(xts)
+library(forecast)
+library(tseries)
+library(fGarch)
+library(TSA)
+library(Metrics)
+```
+
+
+```{r}
+setwd("~/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/scripts/modeling")
+path <- '/Users/kshitizsahay/Documents/University of Chicago/ADSP 31006 Time Series Analysis & Forecasting/Project/india-air-quality-index-forecast/data/preprocessed_dataset/daily/'
+cities <- c('bengaluru', 'lucknow', 'delhi', 'chennai')
+
+for (city in cities) {
+  file_name <- paste0(path, city, "_day_filled.csv")
+  assign(city, read.csv(file_name))
+  print(city)
+  print(rbind(head(get(city), 3), tail(get(city), 3)))
+}
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Combine the data frames with an additional column indicating the city
+bengaluru$City <- "Bengaluru"
+lucknow$City <- "Lucknow"
+delhi$City <- "Delhi"
+chennai$City <- "Chennai"
+
+# Combine all data frames into one
+combined_data <- bind_rows(bengaluru, lucknow, delhi, chennai)
+
+# Ensure the Date column is of Date type
+combined_data$Date <- as.Date(combined_data$Date)
+
+# Plot the time series
+ggplot(combined_data, aes(x = Date, y = AQI, color = City)) +
+  geom_line() +
+  labs(title = "AQI Time Series for Different Cities",
+       x = "Date",
+       y = "AQI") +
+  theme_minimal()
+
+```
+
+```{r}
+# Combine the data frames for Bengaluru and Chennai
+combined_data1 <- bind_rows(bengaluru, chennai)
+
+# Ensure the Date column is of Date type
+combined_data1$Date <- as.Date(combined_data1$Date)
+
+# Plot the time series for Bengaluru and Chennai
+ggplot(combined_data1, aes(x = Date, y = AQI, color = City)) +
+  geom_line() +
+  labs(title = "AQI Time Series Plot for Bengaluru and Chennai",
+       x = "Date",
+       y = "AQI") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+```{r}
+# Combine the data frames for Delhi and Lucknow
+combined_data2 <- bind_rows(delhi, lucknow)
+
+# Ensure the Date column is of Date type
+combined_data2$Date <- as.Date(combined_data1$Date)
+
+# Plot the time series for Delhi and Lucknow
+ggplot(combined_data2, aes(x = Date, y = AQI, color = City)) +
+  geom_line() +
+  labs(title = "AQI Time Series Plot for Delhi and Lucknow",
+       x = "Date",
+       y = "AQI") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+# Create XTS objects
+
+```{r}
+library(xts)
+for (city in cities) {
+  data <- get(city)
+  data$Date <- as.Date(data$Date)
+  data$AQI <- as.numeric(as.character(data$AQI))
+  city_xts <- xts(data[,-1], order.by = data$Date)
+  assign(paste0(city, "_xts"), city_xts)
+  print(city)
+  print(rbind(head(get(paste0(city, "_xts")), 3), tail(get(paste0(city, "_xts")), 3)))
+}
+```
+
+
+```{r}
+adf.test(bengaluru_xts$AQI)
+kpss.test(bengaluru_xts$AQI)
+#eacf(Bengaluru_xts$AQI)
+
+adf.test(chennai_xts$AQI)
+kpss.test(chennai_xts$AQI)
+#eacf(Chennai_xts$AQI)
+
+adf.test(delhi_xts$AQI)
+kpss.test(delhi_xts$AQI)
+#eacf(Delhi_xts$AQI)
+
+adf.test(lucknow_xts$AQI)
+kpss.test(lucknow_xts$AQI)
+#eacf(Lucknow_xts$AQI)
+```
+#VARIMA
+
+```{r}
+# Load necessary packages
+library(vars)
+library(forecast)
+library(tseries)
+library(tidyr)
+library(lubridate)
+
+# Ensure the Date column is of Date type
+combined_data$Date <- as.Date(combined_data$Date)
+
+# Spread the data into wide format
+wide_data <- combined_data %>%
+  dplyr::select(Date, City, AQI) %>%
+  tidyr::spread(key = City, value = AQI)
+
+# Remove rows with missing values if any
+wide_data <- na.omit(wide_data)
+
+# Convert to a time series object
+xts_data <- xts(wide_data[, -1], order.by = wide_data$Date)
+
+# Differencing the series if they are not stationary
+differenced_data <- diff(xts_data)
+
+# Remove rows with missing values if any
+differenced_data <- na.omit(differenced_data)
+
+# Check for stationarity and difference if necessary
+adf.test(differenced_data[, "Bengaluru"]) # Augmented Dickey-Fuller test for Bengaluru
+kpss.test(differenced_data[, "Bengaluru"])
+#eacf(differenced_data[, "Bengaluru"])
+adf.test(differenced_data[, "Chennai"])   # Augmented Dickey-Fuller test for Chennai
+kpss.test(differenced_data[, "Chennai"])
+#eacf(differenced_data[, "Chennai"])
+adf.test(differenced_data[, "Delhi"])   # Augmented Dickey-Fuller test for Delhi
+kpss.test(differenced_data[, "Delhi"])
+#eacf(differenced_data[, "Delhi"])
+adf.test(differenced_data[, "Lucknow"]) 
+kpss.test(differenced_data[, "Lucknow"])
+#eacf(differenced_data[, "Lucknow"])
+
+```
+
+# Train / Test Split
+
+```{r}
+# Split the data into training and testing sets
+train_start <- as.Date("2015-01-01")
+train_end <- as.Date("2020-06-01")
+test_start <- as.Date("2020-06-02")
+test_end <- as.Date("2020-07-01")
+
+train_data <- window(xts_data, start = train_start, end = train_end)
+test_data <- window(xts_data, start = test_start, end = test_end)
+
+
+# Differencing the training series if they are not stationary
+differenced_train_data <- diff(train_data)
+
+# Remove rows with missing values if any
+differenced_train_data <- na.omit(differenced_train_data)
+
+# Fit a VAR model to the differenced training data
+VARselect(differenced_train_data, lag.max = 10, type = "const")
+```
+
+```{r}
+# Based on the criteria, select the optimal lag length (let's assume it's 2)
+var_model <- VAR(differenced_train_data, p = 9, type = "const")
+
+# Summary of the VAR model
+summary(var_model)
+
+# Diagnose the model by checking residuals
+serial.test(var_model, lags.pt = 10, type = "PT.asymptotic")
+normality.test(var_model)
+
+# Forecast using the VAR model
+forecast_var <- predict(var_model, n.ahead = nrow(test_data)) # Forecasting for the length of the test data
+
+# Extract the forecasted differenced values
+forecast_diff <- forecast_var$fcst
+
+# Convert the differenced forecast back to the original levels
+last_train_values <- train_data[nrow(train_data), ]
+
+# Initialize an empty list to store forecasted values in levels
+forecast_levels <- list()
+
+for (city in names(forecast_diff)) {
+  forecast_diff_city <- forecast_diff[[city]][, 1] # Extract the mean forecast
+  forecast_levels[[city]] <- cumsum(c(as.numeric(last_train_values[,city]), forecast_diff_city))[-1]
+}
+
+# Combine the forecasted values into a data frame
+forecast_levels_df <- do.call(cbind, forecast_levels)
+forecast_dates <- seq.Date(from = index(train_data)[nrow(train_data)] + 1, by = "days", length.out = nrow(test_data))
+forecast_levels_xts <- xts(forecast_levels_df, order.by = forecast_dates)
+```
+
+
+```{r}
+
+# Compare the forecast with the actual test data
+plot.xts(cbind(test_data$Bengaluru, forecast_levels_xts$Bengaluru), col = c("blue", "red"), 
+         main = "Actual vs Forecasted AQI Levels - Bengaluru",
+         lty = c(1, 2), auto.legend = TRUE)
+
+par(xpd=TRUE)
+legend("topleft", legend = c("Actual", "Forecast"),
+       col = c("blue", "red"), lty = c(1, 2), cex =0.6, inset = 0.08)
+
+```
+
+```{r}
+# Compare the forecast with the actual test data
+plot.xts(cbind(test_data$Chennai, forecast_levels_xts$Chennai), col = c("blue", "red"), 
+         main = "Actual vs Forecasted AQI Levels - Chennai",
+         lty = c(1, 2), auto.legend = TRUE)
+
+par(xpd=TRUE)
+legend("topleft", legend = c("Actual", "Forecast"),
+       col = c("blue", "red"), lty = c(1, 2), cex =0.6, inset = 0.08)
+```
+
+```{r}
+# Compare the forecast with the actual test data
+plot.xts(cbind(test_data$Lucknow, forecast_levels_xts$Lucknow), col = c("blue", "red"), 
+         main = "Actual vs Forecasted AQI Levels - Lucknow",
+         lty = c(1, 2), auto.legend = FALSE)
+
+par(xpd=TRUE)
+legend("topleft", legend = c("Actual", "Forecast"),
+       col = c("blue", "red"), lty = c(1, 2), cex =0.6, inset = 0.08)
+
+```
+
+```{r}
+# Compare the forecast with the actual test data
+plot.xts(cbind(test_data$Delhi, forecast_levels_xts$Delhi), col = c("blue", "red"), 
+         main = "Actual vs Forecasted AQI Levels - Delhi",
+         lty = c(1, 2), auto.legend = FALSE)
+
+par(xpd=TRUE)
+legend("topleft", legend = c("Actual", "Forecast"),
+       col = c("blue", "red"), lty = c(1, 2), cex =0.6, inset = 0.08)
+
+```
+
+
+```{r}
+# Initialize a data frame to store the evaluation metrics
+results <- data.frame(
+  City = character(),
+  AIC = numeric(),
+  BIC = numeric(),
+  MSE = numeric(),
+  RMSE = numeric(),
+  MAE = numeric(),
+  MAPE = numeric(),
+  AMAPE = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Calculate evaluation metrics for each city
+for (city in colnames(forecast_levels_xts)) {
+  if (city %in% colnames(test_data)) {
+    actual <- as.numeric(coredata(test_data[, city]))
+    forecasted <- as.numeric(coredata(forecast_levels_xts[, city]))
+    
+    # Calculate AIC and BIC
+    aic_value <- AIC(var_model)
+    bic_value <- BIC(var_model)
+    
+    # Calculate MSE
+    mse_value <- mean((actual - forecasted)^2)
+    
+    # Calculate RMSE
+    rmse_value <- sqrt(mse_value)
+    
+    # Calculate MAE
+    mae_value <- mean(abs(actual - forecasted))
+    
+    # Calculate MAPE
+    mape_value <- mean(abs((actual - forecasted) / actual)) * 100
+    
+    # Calculate AMAPE
+    amape_value <- mean(abs(actual - forecasted) / ((abs(actual) + abs(forecasted)) / 2)) * 100
+    
+    # Append the results to the data frame
+    results <- rbind(results, data.frame(
+      City = city,
+      RMSE = rmse_value,
+      MAE = mae_value,
+      MAPE = mape_value,
+      AMAPE = amape_value,
+      AIC = aic_value,
+      BIC = bic_value,
+      MSE = mse_value,
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Display the results
+print(results)
+
+```
+
+
+# divide four cities into two groups 
+```{r}
+# Split the data into two groups: (Bengaluru, Chennai) and (Delhi, Lucknow)
+group1 <- combined_data %>% filter(City %in% c("Bengaluru", "Chennai"))
+group2 <- combined_data %>% filter(City %in% c("Delhi", "Lucknow"))
+
+# Function to process each group
+process_group <- function(data, cities) {
+  # Spread the data into wide format
+  wide_data <- data %>%
+    dplyr::select(Date, City, AQI) %>%
+    tidyr::spread(key = City, value = AQI)
+
+  # Remove rows with missing values if any
+  wide_data <- na.omit(wide_data)
+
+  # Convert to xts object, keeping the Date column
+  xts_data <- xts(wide_data[, -1], order.by = wide_data$Date)
+
+  # Split the data into training and testing sets using window function
+  train_start <- as.Date("2015-01-01")
+  train_end <- as.Date("2020-06-01")
+  test_start <- as.Date("2020-06-02")
+  test_end <- as.Date("2020-07-01")
+
+  train_data <- window(xts_data, start = train_start, end = train_end)
+  test_data <- window(xts_data, start = test_start, end = test_end)
+
+  # Check for stationarity and difference if necessary on the training data
+  for (city in cities) {
+    adf_test <- adf.test(train_data[, city])
+    if (adf_test$p.value > 0.05) {
+      train_data[, city] <- diff(train_data[, city])
+    }
+  }
+
+  # Fit a VAR model to the differenced training data
+  var_select <- VARselect(train_data, lag.max = 10, type = "const")
+  optimal_lag <- var_select$selection["AIC(n)"]
+
+  var_model <- VAR(train_data, p = optimal_lag, type = "const")
+
+  # Summary of the VAR model
+  summary(var_model)
+
+  # Diagnose the model by checking residuals
+  serial.test(var_model, lags.pt = 10, type = "PT.asymptotic")
+  normality.test(var_model)
+
+  # Forecast using the VAR model
+  forecast_var <- predict(var_model, n.ahead = nrow(test_data)) # Forecasting for the length of the test data
+
+  # Extract the forecasted differenced values
+  forecast_diff <- forecast_var$fcst
+
+  # Convert the differenced forecast back to the original levels
+  last_train_values <- train_data[nrow(train_data), ]
+
+  # Initialize an empty list to store forecasted values in levels
+  forecast_levels <- list()
+
+  for (city in names(forecast_diff)) {
+    forecast_diff_city <- forecast_diff[[city]][, 1] # Extract the mean forecast
+    forecast_levels[[city]] <- cumsum(c(as.numeric(last_train_values[, city]), forecast_diff_city))[-1]
+  }
+
+  # Combine the forecasted values into a data frame
+  forecast_levels_df <- do.call(cbind, forecast_levels)
+  forecast_dates <- seq.Date(from = index(train_data)[nrow(train_data)] + 1, by = "days", length.out = nrow(test_data))
+  forecast_levels_xts <- xts(forecast_levels_df, order.by = forecast_dates)
+
+  # Initialize a data frame to store the evaluation metrics
+  results <- data.frame(
+    City = character(),
+    AIC = numeric(),
+    BIC = numeric(),
+    MSE = numeric(),
+    RMSE = numeric(),
+    MAE = numeric(),
+    MAPE = numeric(),
+    AMAPE = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  # Calculate evaluation metrics for each city
+  for (city in colnames(forecast_levels_xts)) {
+    if (city %in% colnames(test_data)) {
+      actual <- as.numeric(coredata(test_data[, city]))
+      forecasted <- as.numeric(coredata(forecast_levels_xts[, city]))
+      
+      # Calculate AIC and BIC
+      aic_value <- AIC(var_model)
+      bic_value <- BIC(var_model)
+      
+      # Calculate MSE
+      mse_value <- mean((actual - forecasted)^2)
+      
+      # Calculate RMSE
+      rmse_value <- sqrt(mse_value)
+      
+      # Calculate MAE
+      mae_value <- mean(abs(actual - forecasted))
+      
+      # Calculate MAPE
+      mape_value <- mean(abs((actual - forecasted) / actual)) * 100
+      
+      # Calculate AMAPE
+      amape_value <- mean(abs(actual - forecasted) / ((abs(actual) + abs(forecasted)) / 2)) * 100
+      
+      # Append the results to the data frame
+      results <- rbind(results, data.frame(
+        City = city,
+        AIC = aic_value,
+        BIC = bic_value,
+        MSE = mse_value,
+        RMSE = rmse_value,
+        MAE = mae_value,
+        MAPE = mape_value,
+        AMAPE = amape_value,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+
+  # Return the results
+  return(results)
+}
+
+# Process each group and display the results
+results_group1 <- process_group(group1, c("Bengaluru", "Chennai"))
+results_group2 <- process_group(group2, c("Delhi", "Lucknow"))
+
+# Display the results
+print("Results for Bengaluru and Chennai")
+print(results_group1)
+print("Results for Delhi and Lucknow")
+print(results_group2)
+  
+```
+
+
+
+
+
+
